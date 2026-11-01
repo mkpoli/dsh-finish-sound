@@ -8,8 +8,9 @@
 // the agent asks the user something (ask_user_question or an approval). The
 // page-wide Session status map carries both facts: a running flag that falls
 // marks a finish, and an appearing pending interaction marks a question. The
-// clips are small WAV files registered in lib/sounds.js; the composer tool
-// row holds a speaker toggle that mutes both for this browser.
+// clips are small WAV files registered in lib/sounds.js; a row in
+// Settings → General turns them on or off for this browser, sets the volume
+// and previews either cue.
 
 window.__ModuleLoader__.load({
 	id: "dsh-finish-sound",
@@ -25,6 +26,8 @@ window.__ModuleLoader__.load({
 		const jsxRuntime = () => require("react/jsx-runtime");
 		const catalogue = () => require("dsh-finish-sound/lib/sounds.js");
 		const jsxWith = (...args) => jsxRuntime().jsx(...args);
+		const jsxsWith = (...args) => jsxRuntime().jsxs(...args);
+		const primitives = () => require("@deepseek-ai/dsh-client-ui-primitives");
 
 		/** Dictionary namespace owned by this plugin. */
 		const NS = "dsh-finish-sound";
@@ -34,20 +37,18 @@ window.__ModuleLoader__.load({
 		const CLASS = "dsh-finish-sound";
 
 		const en = {
-			"button.title": "Event sounds",
-			"menu.title": "Event sounds",
-			"menu.volume": "Volume",
-			"menu.hint": "A cue plays when a turn finishes, and another when the agent asks you something.",
-			"menu.preview.finish": "Finish cue",
-			"menu.preview.question": "Question cue",
+			"settings.title": "Event sounds",
+			"settings.description": "A cue plays when a turn finishes in any session, and another when the agent asks you something. Applies to this browser.",
+			"settings.volume": "Volume",
+			"settings.preview.finish": "Finish cue",
+			"settings.preview.question": "Question cue",
 		};
 		const zh = {
-			"button.title": "事件提示音",
-			"menu.title": "事件提示音",
-			"menu.volume": "音量",
-			"menu.hint": "每轮结束时播放完成音，助手提问时播放提问音。",
-			"menu.preview.finish": "完成音",
-			"menu.preview.question": "提问音",
+			"settings.title": "事件提示音",
+			"settings.description": "任一会话的一轮结束时播放完成音，助手向你提问时播放提问音。仅对此浏览器生效。",
+			"settings.volume": "音量",
+			"settings.preview.finish": "完成音",
+			"settings.preview.question": "提问音",
 		};
 		const dict = { en, zh };
 
@@ -57,43 +58,18 @@ window.__ModuleLoader__.load({
 			const style = document.createElement("style");
 			style.id = STYLE_ID;
 			style.textContent = [
-				`.${CLASS}{display:inline-flex;align-items:center;justify-content:center;`,
-				`box-sizing:border-box;width:28px;height:28px;padding:0;`,
-				`border:none;border-radius:var(--dsw-radius-md,6px);`,
-				`background:transparent;color:var(--dsw-alias-label-primary,currentColor);`,
-				`cursor:pointer;transition:background-color .12s ease;opacity:.55}`,
-				`.${CLASS}:hover,.${CLASS}[aria-expanded=true]`,
-				`{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.14));opacity:1}`,
-				`.${CLASS}[data-enabled=true]{opacity:1;color:var(--dsw-alias-brand-primary,currentColor)}`,
-				`.${CLASS}:focus-visible`,
-				`{outline:2px solid var(--dsw-alias-brand-primary,currentColor);outline-offset:1px}`,
-				`.${CLASS}-menu{position:fixed;z-index:60;display:flex;flex-direction:column;gap:2px;`,
-				`min-width:210px;padding:6px;border-radius:12px;font-size:13px;line-height:1.3;`,
-				`background:var(--dsw-alias-bg-layer-2,#26262a);color:var(--dsw-alias-label-primary,#f5f5f5);`,
-				`border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.25));`,
-				`box-shadow:0 8px 24px rgba(0,0,0,.28);isolation:isolate}`,
-				`.${CLASS}-menu-head{display:flex;align-items:center;justify-content:space-between;`,
-				`padding:4px 8px 8px;color:var(--dsw-alias-label-secondary,inherit)}`,
-				`.${CLASS}-switch{position:relative;flex:none;box-sizing:border-box;width:30px;height:18px;padding:0;`,
-				`border:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,.45));border-radius:999px;`,
-				`background:transparent;cursor:pointer;transition:background-color .12s ease,border-color .12s ease}`,
-				`.${CLASS}-switch-dot{position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;`,
-				`background:var(--dsw-alias-label-secondary,#9a9a9a);transition:transform .12s ease,background-color .12s ease}`,
-				`.${CLASS}-switch[aria-checked=true]{background:var(--dsw-alias-brand-primary,#4d6bfe);`,
-				`border-color:var(--dsw-alias-brand-primary,#4d6bfe)}`,
-				`.${CLASS}-switch[aria-checked=true] .${CLASS}-switch-dot{transform:translateX(12px);background:#fff}`,
-				`.${CLASS}-menu [role=menuitem]{display:flex;align-items:center;gap:8px;padding:6px 8px;`,
-				`border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary,inherit);`,
-				`font:inherit;text-align:left;cursor:pointer}`,
-				`.${CLASS}-menu [role=menuitem]:hover`,
-				`{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.14))}`,
-				`.${CLASS}-menu [role=menuitem] svg{flex:none;opacity:.8}`,
-				`.${CLASS}-menu hr{margin:4px 0;border:none;border-top:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,.2))}`,
-				`.${CLASS}-menu-vol{display:grid;gap:2px;padding:4px 8px 8px;`,
-				`color:var(--dsw-alias-label-secondary,inherit)}`,
-				`.${CLASS}-menu-vol input{width:100%;accent-color:var(--dsw-alias-brand-primary,currentColor)}`,
-				`.${CLASS}-menu-hint{margin:0;padding:4px 8px 2px;font-size:12px;`,
-				`color:var(--dsw-alias-label-tertiary,var(--dsw-alias-label-secondary,inherit))}`,
+				`.${CLASS}{display:flex;flex-direction:column;gap:12px;padding:16px 0;`,
+				`border-bottom:.5px solid var(--dsw-alias-border-l2)}`,
+				`.${CLASS}-head{display:flex;align-items:center;gap:8px}`,
+				`.${CLASS}-text{display:flex;flex-direction:column;flex:1;gap:4px;min-width:0;padding-right:48px}`,
+				`.${CLASS}-title{color:var(--dsw-alias-label-primary);font-size:14px;font-weight:400;line-height:22px}`,
+				`.${CLASS}-desc{color:var(--dsw-alias-label-tertiary);font-size:12px;font-weight:400;line-height:18px}`,
+				`.${CLASS}-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}`,
+				`.${CLASS}-volume{display:flex;flex:1;align-items:center;gap:10px;min-width:200px;`,
+				`color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}`,
+				`.${CLASS}-volume input{flex:1;min-width:0;accent-color:var(--dsw-alias-brand-primary)}`,
+				`.${CLASS}-volume output{min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}`,
+				`.${CLASS}[data-enabled=false] .${CLASS}-controls{opacity:.5}`,
 			].join("");
 			document.head.appendChild(style);
 		}
@@ -210,21 +186,18 @@ window.__ModuleLoader__.load({
 			for (const event of catalogue().EVENTS) clipFor(sfx, event).catch(() => {});
 		}
 
-		// -- settings menu ----------------------------------------------------
+		// -- settings row -----------------------------------------------------
 
-		/** Playback state the settings surface renders. */
+		/** Playback state the settings row renders. */
 		function prefState() {
 			return { enabled: prefs.enabled, volume: prefs.volume };
 		}
 
-		/** Composer tool-row toggle with a small settings menu. */
-		function FinishSound(props) {
+		/** Settings → General row: on/off for this browser, volume and cue previews. */
+		function SoundSettingsRow(props) {
 			const t = props.t;
-			const [open, setOpen] = react.useState(false);
+			const ui = primitives();
 			const [state, setState] = react.useState(prefState);
-			const buttonRef = react.useRef(null);
-			const menuRef = react.useRef(null);
-			const [anchor, setAnchor] = react.useState(null);
 
 			function setEnabled(enabled) {
 				const local = readPrefs();
@@ -236,171 +209,46 @@ window.__ModuleLoader__.load({
 				setState(prefState());
 			}
 
-			react.useEffect(() => {
-				if (!open) return;
-				const onDown = (event) => {
-					const target = event.target;
-					if (buttonRef.current && buttonRef.current.contains(target)) return;
-					if (menuRef.current && menuRef.current.contains(target)) return;
-					setOpen(false);
-				};
-				const onKey = (event) => {
-					if (event.key === "Escape") setOpen(false);
-				};
-				document.addEventListener("pointerdown", onDown);
-				document.addEventListener("keydown", onKey);
-				return () => {
-					document.removeEventListener("pointerdown", onDown);
-					document.removeEventListener("keydown", onKey);
-				};
-			}, [open]);
-
-			const toggle = () => {
-				if (open) {
-					setOpen(false);
-					return;
-				}
-				const rect = buttonRef.current && buttonRef.current.getBoundingClientRect();
-				if (rect) setAnchor({ left: rect.left, bottom: rect.top + 4 });
-				setOpen(true);
-			};
-
-			const preview = (event) => {
-				prefs = { ...prefs, enabled: true };
+			function setVolume(volume) {
+				prefs = { ...prefs, volume };
 				setState(prefState());
-				play(event);
-			};
+				play("finish", volume);
+			}
 
-			const menu = open && anchor
-				? jsxWith("div", {
-					ref: menuRef,
-					className: `${CLASS}-menu`,
-					role: "menu",
-					"aria-label": t("menu.title"),
-					style: { left: Math.max(8, anchor.left), bottom: Math.max(8, window.innerHeight - anchor.bottom) },
-					children: [
-						jsxWith("div", { className: `${CLASS}-menu-head`, children: [
-							jsxWith("span", { children: t("menu.title") }),
-							jsxWith("button", {
-								type: "button",
-								role: "menuitemcheckbox",
-								"aria-checked": state.enabled,
-								"aria-label": t("menu.title"),
-								className: `${CLASS}-switch`,
-								onClick: () => setEnabled(!state.enabled),
-								children: jsxWith("span", { className: `${CLASS}-switch-dot` }),
-							}),
+			const preview = (event) => jsxWith(ui.Button, {
+				variant: "outline",
+				size: "sm",
+				onClick: () => play(event),
+				children: t(`settings.preview.${event}`),
+			});
+
+			return jsxsWith("div", {
+				className: CLASS,
+				"data-enabled": String(state.enabled),
+				children: [
+					jsxsWith("div", { className: `${CLASS}-head`, children: [
+						jsxsWith("div", { className: `${CLASS}-text`, children: [
+							jsxWith("div", { className: `${CLASS}-title`, children: t("settings.title") }),
+							jsxWith("div", { className: `${CLASS}-desc`, children: t("settings.description") }),
 						] }),
-						jsxWith("button", {
-							type: "button",
-							role: "menuitem",
-							onClick: () => preview("finish"),
-							children: [jsxWith(RiseIcon, {}), jsxWith("span", { children: t("menu.preview.finish") })],
-						}),
-						jsxWith("button", {
-							type: "button",
-							role: "menuitem",
-							onClick: () => preview("question"),
-							children: [jsxWith(AskIcon, {}), jsxWith("span", { children: t("menu.preview.question") })],
-						}),
-						jsxWith("hr", {}),
-						jsxWith("label", { className: `${CLASS}-menu-vol`, children: [
-							jsxWith("span", { children: `${t("menu.volume")} ${Math.round(state.volume * 100)}%` }),
+						jsxWith(ui.Switch, { checked: state.enabled, label: t("settings.title"), onChange: setEnabled }),
+					] }),
+					jsxsWith("div", { className: `${CLASS}-controls`, children: [
+						jsxsWith("label", { className: `${CLASS}-volume`, children: [
+							jsxWith("span", { children: t("settings.volume") }),
 							jsxWith("input", {
 								type: "range",
 								min: 0,
 								max: 100,
 								step: 5,
 								value: Math.round(state.volume * 100),
-								onChange: (event) => {
-									const volume = Number(event.target.value) / 100;
-									prefs = { ...prefs, volume };
-									setState({ ...state, volume });
-									play("finish", volume);
-								},
+								onChange: (event) => setVolume(Number(event.target.value) / 100),
 							}),
+							jsxWith("output", { children: `${Math.round(state.volume * 100)}%` }),
 						] }),
-						jsxWith("p", { className: `${CLASS}-menu-hint`, children: t("menu.hint") }),
-					],
-				})
-				: null;
-
-			return jsxWith(react.Fragment, {
-				children: [
-					jsxWith("button", {
-						ref: buttonRef,
-						type: "button",
-						className: CLASS,
-						"aria-label": t("button.title"),
-						title: t("button.title"),
-						"aria-haspopup": "menu",
-						"aria-expanded": open,
-						"data-enabled": String(state.enabled),
-						onClick: toggle,
-						children: jsxWith(Icon, { off: !state.enabled }),
-					}),
-					menu,
-				],
-			});
-		}
-
-		/** Speaker glyph: `wave` is "weak" (default) or "strong"; `off` adds a slash. */
-		function Icon(props) {
-			return jsxWith("svg", {
-				width: 16,
-				height: 16,
-				viewBox: "0 0 16 16",
-				fill: "none",
-				stroke: "currentColor",
-				"stroke-width": 1.3,
-				"stroke-linecap": "round",
-				"stroke-linejoin": "round",
-				"aria-hidden": "true",
-				children: props.off
-					? [
-						jsxWith("path", { d: "M2.5 6h2l3-2.5v9L4.5 10h-2z" }),
-						jsxWith("path", { d: "M10 6.2 13.5 9.8M13.5 6.2 10 9.8" }),
-					]
-					: [
-						jsxWith("path", { d: "M2.5 6h2l3-2.5v9L4.5 10h-2z" }),
-						jsxWith("path", { d: "M10 5.4a3.6 3.6 0 0 1 0 5.2" }),
-						jsxWith("path", { d: "M12.4 3.2a6.8 6.8 0 0 1 0 9.6" }),
-					],
-			});
-		}
-
-		/** Menu glyph for the finish cue: a rising wave meter. */
-		function RiseIcon() {
-			return jsxWith("svg", {
-				width: 16,
-				height: 16,
-				viewBox: "0 0 16 16",
-				fill: "none",
-				stroke: "currentColor",
-				"stroke-width": 1.4,
-				"stroke-linecap": "round",
-				"aria-hidden": "true",
-				children: [
-					jsxWith("path", { d: "M2.5 11v-2M6 11V6.5M9.5 11V4M13 11V2" }),
-				],
-			});
-		}
-
-		/** Menu glyph for the question cue: a question mark. */
-		function AskIcon() {
-			return jsxWith("svg", {
-				width: 16,
-				height: 16,
-				viewBox: "0 0 16 16",
-				fill: "none",
-				stroke: "currentColor",
-				"stroke-width": 1.4,
-				"stroke-linecap": "round",
-				"stroke-linejoin": "round",
-				"aria-hidden": "true",
-				children: [
-					jsxWith("path", { d: "M5.6 5.8a2.4 2.4 0 1 1 3.3 2.2c-.8.4-.9 1.1-.9 1.7" }),
-					jsxWith("path", { d: "M8 12.6v.2" }),
+						preview("finish"),
+						preview("question"),
+					] }),
 				],
 			});
 		}
@@ -448,7 +296,7 @@ window.__ModuleLoader__.load({
 		exports.inject = ["slots", "locale", "sessions"];
 
 		/**
-		 * Plugin body: dictionary, styles, the composer toggle and the event monitor.
+		 * Plugin body: dictionary, styles, the settings row and the event monitor.
 		 * @param ctx - client root context.
 		 */
 		exports.apply = (ctx) => {
@@ -466,13 +314,13 @@ window.__ModuleLoader__.load({
 					audio.clips.clear();
 				};
 			}, "finish-sound: audio");
-			ctx.slots.inject("conversation.input.right", () =>
+			ctx.slots.inject("settings.general.item", () =>
 				ctx.slots.register({
-					name: "conversation.input.right",
+					name: "settings.general.item",
 					id: "finish-sound",
-					order: 10,
+					order: 40,
 					locale: NS,
-				}, (props) => jsxWith(FinishSound, { t: props.t }))
+				}, (props) => jsxWith(SoundSettingsRow, { t: props.t }))
 			);
 			ctx.slots.inject("shell.overlay", () =>
 				ctx.slots.register({
