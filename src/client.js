@@ -26,6 +26,7 @@ window.__ModuleLoader__.load({
 		const jsxRuntime = () => require("react/jsx-runtime");
 		const catalogue = () => require("dsh-finish-sound/lib/sounds.js");
 		const jsxWith = (...args) => jsxRuntime().jsx(...args);
+		const jsxsWith = (...args) => jsxRuntime().jsxs(...args);
 		const primitives = () => require("@deepseek-ai/dsh-client-ui-primitives");
 
 		/** Dictionary namespace owned by this plugin. */
@@ -69,7 +70,7 @@ window.__ModuleLoader__.load({
 				`.${CLASS}-volume input{flex:1;min-width:0;accent-color:var(--dsw-alias-brand-primary)}`,
 				`.${CLASS}-volume output{min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}`,
 				`.${CLASS}[data-enabled=false] .${CLASS}-controls{opacity:.5}`,
-].join("");
+			].join("");
 			document.head.appendChild(style);
 		}
 
@@ -221,19 +222,19 @@ window.__ModuleLoader__.load({
 				children: t(`settings.preview.${event}`),
 			});
 
-			return jsxWith("div", {
+			return jsxsWith("div", {
 				className: CLASS,
 				"data-enabled": String(state.enabled),
 				children: [
-					jsxWith("div", { className: `${CLASS}-head`, children: [
-						jsxWith("div", { className: `${CLASS}-text`, children: [
+					jsxsWith("div", { className: `${CLASS}-head`, children: [
+						jsxsWith("div", { className: `${CLASS}-text`, children: [
 							jsxWith("div", { className: `${CLASS}-title`, children: t("settings.title") }),
 							jsxWith("div", { className: `${CLASS}-desc`, children: t("settings.description") }),
 						] }),
 						jsxWith(ui.Switch, { checked: state.enabled, label: t("settings.title"), onChange: setEnabled }),
 					] }),
-					jsxWith("div", { className: `${CLASS}-controls`, children: [
-						jsxWith("label", { className: `${CLASS}-volume`, children: [
+					jsxsWith("div", { className: `${CLASS}-controls`, children: [
+						jsxsWith("label", { className: `${CLASS}-volume`, children: [
 							jsxWith("span", { children: t("settings.volume") }),
 							jsxWith("input", {
 								type: "range",
