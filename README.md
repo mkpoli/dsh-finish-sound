@@ -4,7 +4,7 @@ DSH Web UI plugin that plays a short cue when a turn finishes, and a different c
 
 - **Two events, two cues.** A finish cue plays when a turn ends in any session, not only the one on screen. A question cue plays when `ask_user_question` or an approval starts waiting for you. A run of queued turns only rings once, at the end.
 - **One setting for every session.** Settings → General → Event sounds turns both cues on or off for this browser, sets the volume and previews either cue.
-- **Your own sounds.** Either cue can be replaced with an audio file of up to 2 MB that the browser can decode (WAV, MP3, OGG, …). The file stays in this browser's IndexedDB; **Use built-in** returns to the shipped clip.
+- **Your own sounds.** Either cue can be replaced with an audio file of up to 2 MB and 10 seconds that the browser can decode (WAV, MP3, OGG, …). The file stays in this browser's IndexedDB; **Use built-in** returns to the shipped clip.
 - **Generated clips.** Both cues are WAV files generated with [MOSS-SoundEffect-v2.0](https://huggingface.co/OpenMOSS-Team/MOSS-SoundEffect-v2.0) (Apache-2.0) and ship inside the plugin, so they play offline.
 
 ## Cues

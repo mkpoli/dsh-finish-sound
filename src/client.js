@@ -48,6 +48,8 @@ window.__ModuleLoader__.load({
 			"settings.reset": "Use built-in",
 			"settings.error.size": "Choose a file of 2 MB or less.",
 			"settings.error.decode": "This browser cannot play that file.",
+			"settings.error.long": "Choose a sound of 10 seconds or less.",
+			"settings.error.storage": "This browser could not save the sound.",
 		};
 		const zh = {
 			"settings.title": "事件提示音",
@@ -61,6 +63,8 @@ window.__ModuleLoader__.load({
 			"settings.reset": "恢复内置",
 			"settings.error.size": "请选择 2 MB 以内的文件。",
 			"settings.error.decode": "此浏览器无法播放该文件。",
+			"settings.error.long": "请选择 10 秒以内的声音。",
+			"settings.error.storage": "此浏览器无法保存该声音。",
 		};
 		const dict = { en, zh };
 
@@ -147,6 +151,8 @@ window.__ModuleLoader__.load({
 
 		/** Largest custom file accepted, in bytes. */
 		const CUSTOM_LIMIT = 2 * 1024 * 1024;
+		/** Longest custom sound accepted, in seconds; bounds the decoded buffer kept in memory. */
+		const CUSTOM_SECONDS = 10;
 		const DB_NAME = "dsh-finish-sound";
 		const DB_STORE = "clips";
 
@@ -164,13 +170,20 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		/** Run one request against the clip store. */
+		/** Run one request against the clip store; settles on completion, error or abort (a full quota aborts). */
 		function withStore(mode, use) {
+			if (!globalThis.indexedDB) return Promise.reject(new Error("IndexedDB is unavailable"));
 			return openDb().then((db) => new Promise((resolve, reject) => {
-				const tx = db.transaction(DB_STORE, mode);
-				const request = use(tx.objectStore(DB_STORE));
-				tx.oncomplete = () => { db.close(); resolve(request.result); };
-				tx.onerror = () => { db.close(); reject(tx.error); };
+				const fail = (error) => { db.close(); reject(error ?? new Error("IndexedDB transaction aborted")); };
+				try {
+					const tx = db.transaction(DB_STORE, mode);
+					const request = use(tx.objectStore(DB_STORE));
+					tx.oncomplete = () => { db.close(); resolve(request.result); };
+					tx.onerror = () => fail(tx.error);
+					tx.onabort = () => fail(tx.error);
+				} catch (error) {
+					fail(error);
+				}
 			}));
 		}
 
@@ -192,30 +205,56 @@ window.__ModuleLoader__.load({
 			)).catch((error) => console.error("[dsh-finish-sound] custom clips unavailable:", error));
 		}
 
+		/** Latest pick per event; an older pick that finishes later is dropped. */
+		const picks = new Map();
+
 		/**
-		 * Store a file as one event's cue after checking that it is small enough and decodes.
-		 * @returns the dictionary key of the problem, or null when stored.
+		 * Store a file as one event's cue after checking its size, that it decodes and its length.
+		 * The bytes are copied, so editing or deleting the file afterwards changes nothing.
+		 * @returns the dictionary key of the problem, null when stored, or "stale" when a newer pick replaced it.
 		 */
 		async function setCustom(event, file) {
 			if (file.size > CUSTOM_LIMIT) return "settings.error.size";
-			const sfx = audioContext();
+			const pick = (picks.get(event) ?? 0) + 1;
+			picks.set(event, pick);
+			let bytes;
+			let buffer = null;
 			try {
-				if (sfx !== null) await sfx.decodeAudioData(await file.arrayBuffer());
+				bytes = await file.arrayBuffer();
+				const sfx = audioContext();
+				if (sfx !== null) buffer = await sfx.decodeAudioData(bytes.slice(0));
 			} catch {
 				return "settings.error.decode";
 			}
-			const value = { name: file.name, blob: file };
-			await withStore("readwrite", (store) => store.put(value, event));
+			if (buffer !== null && buffer.duration > CUSTOM_SECONDS) return "settings.error.long";
+			if (picks.get(event) !== pick) return "stale";
+			const value = { name: file.name, blob: new Blob([bytes], { type: file.type }) };
+			try {
+				await withStore("readwrite", (store) => store.put(value, event));
+			} catch {
+				return "settings.error.storage";
+			}
+			if (picks.get(event) !== pick) return "stale";
 			custom.set(event, value);
 			customChanged(event);
+			if (buffer !== null) audio.clips.set(event, Promise.resolve(buffer));
 			return null;
 		}
 
-		/** Return one event to its built-in cue. */
+		/**
+		 * Return one event to its built-in cue.
+		 * @returns the dictionary key of the problem, or null.
+		 */
 		async function clearCustom(event) {
-			await withStore("readwrite", (store) => store.delete(event));
+			picks.set(event, (picks.get(event) ?? 0) + 1);
+			try {
+				await withStore("readwrite", (store) => store.delete(event));
+			} catch {
+				return "settings.error.storage";
+			}
 			custom.delete(event);
 			customChanged(event);
+			return null;
 		}
 
 		/** Decode one event's clip once: this browser's custom file, else the built-in data URL. */
@@ -228,7 +267,9 @@ window.__ModuleLoader__.load({
 				: fetch(catalogue().CLIPS[event]).then((response) => response.arrayBuffer());
 			const decoded = bytes.then((data) => sfx.decodeAudioData(data));
 			audio.clips.set(event, decoded);
-			decoded.catch(() => audio.clips.delete(event));
+			decoded.catch(() => {
+				if (audio.clips.get(event) === decoded) audio.clips.delete(event);
+			});
 			return decoded;
 		}
 
@@ -307,6 +348,9 @@ window.__ModuleLoader__.load({
 			const [state, setState] = react.useState(prefState);
 			const [, setRevision] = react.useState(0);
 			const [error, setError] = react.useState(null);
+			const errors = react.useRef(0);
+			const inputs = react.useRef({});
+			const report = (problem) => setError(problem === null || problem === "stale" ? null : { key: problem, n: ++errors.current });
 			react.useEffect(() => {
 				const listener = () => setRevision((value) => value + 1);
 				customListeners.add(listener);
@@ -327,8 +371,8 @@ window.__ModuleLoader__.load({
 				const file = input.files && input.files[0];
 				input.value = "";
 				if (!file) return;
-				const problem = await setCustom(event, file).catch(() => "settings.error.decode");
-				setError(problem);
+				const problem = await setCustom(event, file);
+				report(problem);
 				if (problem === null) play(event);
 			}
 
@@ -339,11 +383,18 @@ window.__ModuleLoader__.load({
 					jsxWith("span", { className: `${CLASS}-cue-source`, title: own ? own.name : undefined, children: own ? own.name : t("settings.builtin") }),
 					jsxWith(ui.Button, { variant: "outline", size: "sm", onClick: () => play(event), children: t("settings.play") }),
 					jsxsWith("span", { children: [
-						jsxWith("input", { type: "file", accept: "audio/*", onChange: (input) => choose(event, input.target) }),
+						jsxWith("input", {
+							type: "file",
+							accept: "audio/*",
+							tabIndex: -1,
+							"aria-hidden": "true",
+							ref: (node) => { inputs.current[event] = node; },
+							onChange: (input) => choose(event, input.target),
+						}),
 						jsxWith(ui.Button, {
 							variant: "outline",
 							size: "sm",
-							onClick: (click) => click.currentTarget.parentElement.querySelector("input").click(),
+							onClick: () => inputs.current[event]?.click(),
 							children: t("settings.choose"),
 						}),
 					] }),
@@ -351,7 +402,10 @@ window.__ModuleLoader__.load({
 						variant: "outline",
 						size: "sm",
 						disabled: !own,
-						onClick: () => { setError(null); clearCustom(event); },
+						onClick: () => {
+							report(null);
+							clearCustom(event).then(report);
+						},
 						children: t("settings.reset"),
 					}),
 				] });
@@ -388,7 +442,7 @@ window.__ModuleLoader__.load({
 					jsxsWith("div", { className: `${CLASS}-cues`, children: [
 						cue("finish"),
 						cue("question"),
-						error ? jsxWith("p", { className: `${CLASS}-error`, role: "alert", children: t(error) }) : null,
+						error ? jsxWith("p", { key: error.n, className: `${CLASS}-error`, role: "alert", children: t(error.key) }) : null,
 					] }),
 				],
 			});
@@ -445,10 +499,14 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => ctx.locale.register(NS, dict), "finish-sound: dictionaries");
 			ctx.effect(() => ensureStyles(), "finish-sound: styles");
 			ctx.effect(() => {
-				loadCustom().then(warmClips);
+				let disposed = false;
+				loadCustom().then(() => {
+					if (!disposed) warmClips();
+				});
 				window.addEventListener("pointerdown", onGesture, true);
 				window.addEventListener("keydown", onGesture, true);
 				return () => {
+					disposed = true;
 					window.removeEventListener("pointerdown", onGesture, true);
 					window.removeEventListener("keydown", onGesture, true);
 					if (audio.ctx !== null) audio.ctx.close().catch(() => {});
