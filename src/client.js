@@ -283,6 +283,7 @@ window.__ModuleLoader__.load({
 				} catch {
 					return;
 				}
+				if (!prefs.enabled) return;
 				// A snapshot that both ends a turn and asks gets the question cue.
 				if (asked) play("question");
 				else if (finished) play("finish");
