@@ -40,15 +40,31 @@ window.__ModuleLoader__.load({
 			"settings.title": "Event sounds",
 			"settings.description": "A cue plays when a turn finishes in any session, and another when the agent asks you something. Applies to this browser.",
 			"settings.volume": "Volume",
-			"settings.preview.finish": "Finish cue",
-			"settings.preview.question": "Question cue",
+			"settings.cue.finish": "Finish cue",
+			"settings.cue.question": "Question cue",
+			"settings.builtin": "Built-in",
+			"settings.play": "Play",
+			"settings.choose": "Choose file…",
+			"settings.reset": "Use built-in",
+			"settings.error.size": "Choose a file of 2 MB or less.",
+			"settings.error.decode": "This browser cannot play that file.",
+			"settings.error.long": "Choose a sound of 10 seconds or less.",
+			"settings.error.storage": "This browser could not save the sound.",
 		};
 		const zh = {
 			"settings.title": "事件提示音",
 			"settings.description": "任一会话的一轮结束时播放完成音，助手向你提问时播放提问音。仅对此浏览器生效。",
 			"settings.volume": "音量",
-			"settings.preview.finish": "完成音",
-			"settings.preview.question": "提问音",
+			"settings.cue.finish": "完成音",
+			"settings.cue.question": "提问音",
+			"settings.builtin": "内置",
+			"settings.play": "播放",
+			"settings.choose": "选择文件…",
+			"settings.reset": "恢复内置",
+			"settings.error.size": "请选择 2 MB 以内的文件。",
+			"settings.error.decode": "此浏览器无法播放该文件。",
+			"settings.error.long": "请选择 10 秒以内的声音。",
+			"settings.error.storage": "此浏览器无法保存该声音。",
 		};
 		const dict = { en, zh };
 
@@ -69,7 +85,14 @@ window.__ModuleLoader__.load({
 				`color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}`,
 				`.${CLASS}-volume input{flex:1;min-width:0;accent-color:var(--dsw-alias-brand-primary)}`,
 				`.${CLASS}-volume output{min-width:4ch;text-align:right;font-variant-numeric:tabular-nums}`,
-				`.${CLASS}[data-enabled=false] .${CLASS}-controls{opacity:.5}`,
+				`.${CLASS}[data-enabled=false] .${CLASS}-controls,.${CLASS}[data-enabled=false] .${CLASS}-cues{opacity:.5}`,
+				`.${CLASS}-cues{display:flex;flex-direction:column;gap:8px}`,
+				`.${CLASS}-cue{display:flex;flex-wrap:wrap;align-items:center;gap:8px}`,
+				`.${CLASS}-cue-name{min-width:96px;color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}`,
+				`.${CLASS}-cue-source{flex:1;min-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`,
+				`color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}`,
+				`.${CLASS}-cue input[type=file]{display:none}`,
+				`.${CLASS}-error{margin:0;color:var(--dsw-alias-label-danger,#e5484d);font-size:12px;line-height:18px}`,
 			].join("");
 			document.head.appendChild(style);
 		}
@@ -124,15 +147,129 @@ window.__ModuleLoader__.load({
 			return audio.ctx;
 		}
 
-		/** Decode one event's clip once; the WAV data URL comes from the catalogue module. */
+		// -- custom clips -----------------------------------------------------
+
+		/** Largest custom file accepted, in bytes. */
+		const CUSTOM_LIMIT = 2 * 1024 * 1024;
+		/** Longest custom sound accepted, in seconds; bounds the decoded buffer kept in memory. */
+		const CUSTOM_SECONDS = 10;
+		const DB_NAME = "dsh-finish-sound";
+		const DB_STORE = "clips";
+
+		/** Custom clip per event for this browser: `{ name, blob }`. */
+		const custom = new Map();
+		/** Listeners told when `custom` changes. */
+		const customListeners = new Set();
+
+		function openDb() {
+			return new Promise((resolve, reject) => {
+				const request = globalThis.indexedDB.open(DB_NAME, 1);
+				request.onupgradeneeded = () => request.result.createObjectStore(DB_STORE);
+				request.onsuccess = () => resolve(request.result);
+				request.onerror = () => reject(request.error);
+			});
+		}
+
+		/** Run one request against the clip store; settles on completion, error or abort (a full quota aborts). */
+		function withStore(mode, use) {
+			if (!globalThis.indexedDB) return Promise.reject(new Error("IndexedDB is unavailable"));
+			return openDb().then((db) => new Promise((resolve, reject) => {
+				const fail = (error) => { db.close(); reject(error ?? new Error("IndexedDB transaction aborted")); };
+				try {
+					const tx = db.transaction(DB_STORE, mode);
+					const request = use(tx.objectStore(DB_STORE));
+					tx.oncomplete = () => { db.close(); resolve(request.result); };
+					tx.onerror = () => fail(tx.error);
+					tx.onabort = () => fail(tx.error);
+				} catch (error) {
+					fail(error);
+				}
+			}));
+		}
+
+		function customChanged(event) {
+			audio.clips.delete(event);
+			for (const listener of customListeners) listener();
+		}
+
+		/** Load every stored custom clip into memory. */
+		function loadCustom() {
+			if (!globalThis.indexedDB) return Promise.resolve();
+			return Promise.all(catalogue().EVENTS.map((event) =>
+				withStore("readonly", (store) => store.get(event)).then((value) => {
+					if (value && value.blob) {
+						custom.set(event, value);
+						customChanged(event);
+					}
+				})
+			)).catch((error) => console.error("[dsh-finish-sound] custom clips unavailable:", error));
+		}
+
+		/** Latest pick per event; an older pick that finishes later is dropped. */
+		const picks = new Map();
+
+		/**
+		 * Store a file as one event's cue after checking its size, that it decodes and its length.
+		 * The bytes are copied, so editing or deleting the file afterwards changes nothing.
+		 * @returns the dictionary key of the problem, null when stored, or "stale" when a newer pick replaced it.
+		 */
+		async function setCustom(event, file) {
+			if (file.size > CUSTOM_LIMIT) return "settings.error.size";
+			const pick = (picks.get(event) ?? 0) + 1;
+			picks.set(event, pick);
+			let bytes;
+			let buffer = null;
+			try {
+				bytes = await file.arrayBuffer();
+				const sfx = audioContext();
+				if (sfx !== null) buffer = await sfx.decodeAudioData(bytes.slice(0));
+			} catch {
+				return "settings.error.decode";
+			}
+			if (buffer !== null && buffer.duration > CUSTOM_SECONDS) return "settings.error.long";
+			if (picks.get(event) !== pick) return "stale";
+			const value = { name: file.name, blob: new Blob([bytes], { type: file.type }) };
+			try {
+				await withStore("readwrite", (store) => store.put(value, event));
+			} catch {
+				return "settings.error.storage";
+			}
+			if (picks.get(event) !== pick) return "stale";
+			custom.set(event, value);
+			customChanged(event);
+			if (buffer !== null) audio.clips.set(event, Promise.resolve(buffer));
+			return null;
+		}
+
+		/**
+		 * Return one event to its built-in cue.
+		 * @returns the dictionary key of the problem, or null.
+		 */
+		async function clearCustom(event) {
+			picks.set(event, (picks.get(event) ?? 0) + 1);
+			try {
+				await withStore("readwrite", (store) => store.delete(event));
+			} catch {
+				return "settings.error.storage";
+			}
+			custom.delete(event);
+			customChanged(event);
+			return null;
+		}
+
+		/** Decode one event's clip once: this browser's custom file, else the built-in data URL. */
 		function clipFor(sfx, event) {
 			const cached = audio.clips.get(event);
 			if (cached !== undefined) return cached;
-			const decoded = fetch(catalogue().CLIPS[event])
-				.then((response) => response.arrayBuffer())
-				.then((bytes) => sfx.decodeAudioData(bytes));
+			const own = custom.get(event);
+			const bytes = own
+				? own.blob.arrayBuffer()
+				: fetch(catalogue().CLIPS[event]).then((response) => response.arrayBuffer());
+			const decoded = bytes.then((data) => sfx.decodeAudioData(data));
 			audio.clips.set(event, decoded);
-			decoded.catch(() => audio.clips.delete(event));
+			decoded.catch(() => {
+				if (audio.clips.get(event) === decoded) audio.clips.delete(event);
+			});
 			return decoded;
 		}
 
@@ -209,6 +346,16 @@ window.__ModuleLoader__.load({
 			const t = props.t;
 			const ui = primitives();
 			const [state, setState] = react.useState(prefState);
+			const [, setRevision] = react.useState(0);
+			const [error, setError] = react.useState(null);
+			const errors = react.useRef(0);
+			const inputs = react.useRef({});
+			const report = (problem) => setError(problem === null || problem === "stale" ? null : { key: problem, n: ++errors.current });
+			react.useEffect(() => {
+				const listener = () => setRevision((value) => value + 1);
+				customListeners.add(listener);
+				return () => customListeners.delete(listener);
+			}, []);
 
 			function setEnabled(enabled) {
 				savePref("enabled", enabled);
@@ -220,12 +367,49 @@ window.__ModuleLoader__.load({
 				setState(prefState());
 			}
 
-			const preview = (event) => jsxWith(ui.Button, {
-				variant: "outline",
-				size: "sm",
-				onClick: () => play(event),
-				children: t(`settings.preview.${event}`),
-			});
+			async function choose(event, input) {
+				const file = input.files && input.files[0];
+				input.value = "";
+				if (!file) return;
+				const problem = await setCustom(event, file);
+				report(problem);
+				if (problem === null) play(event);
+			}
+
+			const cue = (event) => {
+				const own = custom.get(event);
+				return jsxsWith("div", { className: `${CLASS}-cue`, children: [
+					jsxWith("span", { className: `${CLASS}-cue-name`, children: t(`settings.cue.${event}`) }),
+					jsxWith("span", { className: `${CLASS}-cue-source`, title: own ? own.name : undefined, children: own ? own.name : t("settings.builtin") }),
+					jsxWith(ui.Button, { variant: "outline", size: "sm", onClick: () => play(event), children: t("settings.play") }),
+					jsxsWith("span", { children: [
+						jsxWith("input", {
+							type: "file",
+							accept: "audio/*",
+							tabIndex: -1,
+							"aria-hidden": "true",
+							ref: (node) => { inputs.current[event] = node; },
+							onChange: (input) => choose(event, input.target),
+						}),
+						jsxWith(ui.Button, {
+							variant: "outline",
+							size: "sm",
+							onClick: () => inputs.current[event]?.click(),
+							children: t("settings.choose"),
+						}),
+					] }),
+					jsxWith(ui.Button, {
+						variant: "outline",
+						size: "sm",
+						disabled: !own,
+						onClick: () => {
+							report(null);
+							clearCustom(event).then(report);
+						},
+						children: t("settings.reset"),
+					}),
+				] });
+			};
 
 			return jsxsWith("div", {
 				className: CLASS,
@@ -254,8 +438,11 @@ window.__ModuleLoader__.load({
 							}),
 							jsxWith("output", { children: `${Math.round(state.volume * 100)}%` }),
 						] }),
-						preview("finish"),
-						preview("question"),
+					] }),
+					jsxsWith("div", { className: `${CLASS}-cues`, children: [
+						cue("finish"),
+						cue("question"),
+						error ? jsxWith("p", { key: error.n, className: `${CLASS}-error`, role: "alert", children: t(error.key) }) : null,
 					] }),
 				],
 			});
@@ -312,10 +499,14 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => ctx.locale.register(NS, dict), "finish-sound: dictionaries");
 			ctx.effect(() => ensureStyles(), "finish-sound: styles");
 			ctx.effect(() => {
-				warmClips();
+				let disposed = false;
+				loadCustom().then(() => {
+					if (!disposed) warmClips();
+				});
 				window.addEventListener("pointerdown", onGesture, true);
 				window.addEventListener("keydown", onGesture, true);
 				return () => {
+					disposed = true;
 					window.removeEventListener("pointerdown", onGesture, true);
 					window.removeEventListener("keydown", onGesture, true);
 					if (audio.ctx !== null) audio.ctx.close().catch(() => {});
