@@ -1,0 +1,56 @@
+{
+  "name": "dsh-finish-sound",
+  "version": "0.1.0",
+  "description": "DSH Web UI plugin: a generated cue when a turn finishes and a different cue when the agent asks a question, with a composer mute, preview and volume control.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./lib/sounds.js": "./lib/sounds.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "assets",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mkpoli/dsh-finish-sound.git"
+  },
+  "homepage": "https://github.com/mkpoli/dsh-finish-sound",
+  "bugs": {
+    "url": "https://github.com/mkpoli/dsh-finish-sound/issues"
+  },
+  "author": "mkpoli",
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "sound",
+    "notification",
+    "web-ui"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "npm run typecheck && npm run test",
+    "typecheck": "node --check src/client.js && node --check lib/client.js && node --check lib/index.js && node --check lib/sounds.js",
+    "build": "node scripts/build-client.mjs"
+  }
+}
