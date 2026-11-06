@@ -2,7 +2,7 @@
 
 DSH Web UI plugin that plays a short cue when a turn finishes, and a different cue when the agent asks you something.
 
-- **Two events, two cues.** A finish cue plays when a turn ends in any session, not only the one on screen. A question cue plays when `ask_user_question` or an approval starts waiting for you. A run of queued turns only rings once, at the end.
+- **Two events, two cues.** A finish cue plays when a turn ends in any session, not only the one on screen. Subagent turns never ring the finish cue, so one parent turn rings once however many delegates it runs. A question cue plays when `ask_user_question` or an approval starts waiting for you. A run of queued turns only rings once, at the end.
 - **One setting for every session.** Settings → General → Event sounds turns both cues on or off for this browser, sets the volume and previews either cue.
 - **Your own sounds.** Either cue can be replaced with an audio file of up to 2 MB and 10 seconds that the browser can decode (WAV, MP3, OGG, …). The file stays in this browser's IndexedDB; **Use built-in** returns to the shipped clip.
 - **Generated clips.** Both cues are WAV files generated with [MOSS-SoundEffect-v2.0](https://huggingface.co/OpenMOSS-Team/MOSS-SoundEffect-v2.0) (Apache-2.0) and ship inside the plugin, so they play offline.
@@ -44,6 +44,7 @@ For a local checkout, `link:/path/to/dsh-finish-sound` works the same way.
 
 - Browsers keep audio locked until the page has had a user gesture. A cue that fires before then plays on the next click or key press unless a new turn has already started.
 - A snapshot that ends a turn and asks a question at the same time plays the question cue only.
+- A subagent Session never rings the finish cue. The parent turn rings once, when its own turn ends.
 
 ## Development
 

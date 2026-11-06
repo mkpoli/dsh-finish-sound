@@ -7,9 +7,10 @@
 // Feature: play a generated cue when a turn finishes and a different cue when
 // the agent asks the user something (ask_user_question or an approval). The
 // page-wide Session status map carries both facts: a running flag that falls
-// marks a finish, and an appearing pending interaction marks a question. The
-// clips are small WAV files registered in lib/sounds.js; a row in
-// Settings → General turns them on or off for this browser, sets the volume
+// marks a finish, and an appearing pending interaction marks a question. A
+// subagent's turn ends inside its parent's turn, so its Session never rings the
+// finish cue. The clips are small WAV files registered in lib/sounds.js; a row
+// in Settings → General turns them on or off for this browser, sets the volume
 // and previews either cue.
 
 window.__ModuleLoader__.load({
@@ -38,7 +39,7 @@ window.__ModuleLoader__.load({
 
 		const en = {
 			"settings.title": "Event sounds",
-			"settings.description": "A cue plays when a turn finishes in any session, and another when the agent asks you something. Applies to this browser.",
+			"settings.description": "A cue plays when any session finishes a turn, except a subagent's. Another plays when the agent asks you something. Applies to this browser.",
 			"settings.volume": "Volume",
 			"settings.cue.finish": "Finish cue",
 			"settings.cue.question": "Question cue",
@@ -53,7 +54,7 @@ window.__ModuleLoader__.load({
 		};
 		const zh = {
 			"settings.title": "事件提示音",
-			"settings.description": "任一会话的一轮结束时播放完成音，助手向你提问时播放提问音。仅对此浏览器生效。",
+			"settings.description": "任一会话的一轮结束时播放完成音，子代理的会话除外；助手向你提问时播放提问音。仅对此浏览器生效。",
 			"settings.volume": "音量",
 			"settings.cue.finish": "完成音",
 			"settings.cue.question": "提问音",
@@ -449,13 +450,33 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * Whether a Session belongs to a subagent. A subagent's turn ends inside
+		 * its parent's turn, so its finish must not ring.
+		 * @param sessionId - Session identity from the status map.
+		 * @param sessions - Session root service; its address lookup covers every
+		 *   known child, including one only its parent's catalog lists.
+		 */
+		function isSubagentSession(sessionId, sessions) {
+			if (sessions === null || sessions === undefined || typeof sessions.subagentAddress !== "function") return false;
+			try {
+				return sessions.subagentAddress(sessionId) !== undefined;
+			} catch {
+				return false;
+			}
+		}
+
+		/**
 		 * Page-wide event monitor. The status map covers every Session the
 		 * client knows; a running flag that falls marks a finish, and a new
-		 * pending interaction marks the agent asking something.
-		 * @param props - framework kit (useSessionStatus).
+		 * pending interaction marks the agent asking something. A subagent's
+		 * turn ends inside its parent's, so it never rings the finish cue; its
+		 * questions still ring because they wait on you.
+		 * @param props - framework kit (useSessionStatus) plus the Session root
+		 *   service.
 		 */
 		function FinishMonitor(props) {
 			const useSessionStatus = props.useSessionStatus;
+			const sessions = props.sessions;
 			const statuses = typeof useSessionStatus === "function" ? useSessionStatus((value) => value) : null;
 			const seen = react.useRef(null);
 			react.useEffect(() => {
@@ -471,7 +492,7 @@ window.__ModuleLoader__.load({
 						const now = status?.running === true;
 						if (now) running = true;
 						const was = previous.get(sessionId);
-						if (was?.running === true && !now) finished = true;
+						if (!isSubagentSession(sessionId, sessions) && was?.running === true && !now) finished = true;
 						const question = status?.pendingInteraction?.key;
 						if (question !== undefined && question !== null && question !== was?.pendingInteraction?.key) asked = true;
 					}
@@ -527,7 +548,10 @@ window.__ModuleLoader__.load({
 					name: "shell.overlay",
 					id: "finish-sound-monitor",
 					order: 95,
-				}, FinishMonitor)
+				}, (props) => jsxWith(FinishMonitor, {
+					useSessionStatus: props.useSessionStatus,
+					sessions: ctx.sessions,
+				}))
 			);
 		};
 
