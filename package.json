@@ -1,6 +1,6 @@
 {
   "name": "dsh-finish-sound",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "DSH Web UI plugin: a generated cue when a turn finishes and a different cue when the agent asks a question, with an on/off switch, volume and previews in Settings.",
   "type": "module",
   "main": "lib/index.js",
